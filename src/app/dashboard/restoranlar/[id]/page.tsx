@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { ImageUpload } from "@/components/ui/image-upload";
 import {
   Dialog,
   DialogContent,
@@ -37,6 +38,23 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import {
+  DndContext,
+  closestCenter,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  DragEndEvent,
+} from "@dnd-kit/core";
+import {
+  arrayMove,
+  SortableContext,
+  sortableKeyboardCoordinates,
+  useSortable,
+  verticalListSortingStrategy,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 
 interface Item {
   id: string;
@@ -45,12 +63,14 @@ interface Item {
   price: number;
   image: string | null;
   isAvailable: boolean;
+  order: number;
 }
 
 interface Category {
   id: string;
   name: string;
   items: Item[];
+  order: number;
 }
 
 interface Restaurant {
@@ -61,6 +81,253 @@ interface Restaurant {
   address: string | null;
   phone: string | null;
   categories: Category[];
+}
+
+// Sortable Item Component
+function SortableItem({ 
+  item, 
+  onEdit, 
+  onDelete, 
+  onToggleAvailability 
+}: { 
+  item: Item; 
+  onEdit: () => void;
+  onDelete: () => void;
+  onToggleAvailability: () => void;
+}) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: item.id });
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+  };
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      className={`p-4 flex items-center gap-4 bg-background ${!item.isAvailable ? "opacity-50" : ""}`}
+    >
+      <button
+        {...attributes}
+        {...listeners}
+        className="cursor-grab active:cursor-grabbing touch-none"
+      >
+        <GripVertical className="w-4 h-4 text-muted-foreground" />
+      </button>
+      
+      {/* Item Image */}
+      <div className="w-14 h-14 bg-secondary rounded-xl flex items-center justify-center flex-shrink-0 overflow-hidden">
+        {item.image ? (
+          <img 
+            src={item.image} 
+            alt={item.name}
+            className="w-full h-full object-cover"
+          />
+        ) : (
+          <div className="w-6 h-6 bg-muted-foreground/20 rounded-lg" />
+        )}
+      </div>
+
+      {/* Item Info */}
+      <div className="flex-1 min-w-0">
+        <h4 className="font-medium truncate">{item.name}</h4>
+        {item.description && (
+          <p className="text-sm text-muted-foreground truncate">
+            {item.description}
+          </p>
+        )}
+      </div>
+
+      {/* Price */}
+      <div className="text-right flex-shrink-0">
+        <p className="font-semibold">₺{Number(item.price).toFixed(2)}</p>
+      </div>
+
+      {/* Actions */}
+      <div className="flex items-center gap-1 flex-shrink-0">
+        <Button
+          variant="ghost"
+          size="icon"
+          className="rounded-full h-8 w-8"
+          onClick={onToggleAvailability}
+        >
+          {item.isAvailable ? (
+            <Eye className="w-4 h-4" />
+          ) : (
+            <EyeOff className="w-4 h-4" />
+          )}
+        </Button>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="rounded-full h-8 w-8"
+          onClick={onEdit}
+        >
+          <Pencil className="w-4 h-4" />
+        </Button>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="rounded-full h-8 w-8 text-destructive hover:text-destructive"
+          onClick={onDelete}
+        >
+          <Trash2 className="w-4 h-4" />
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+// Sortable Category Component
+function SortableCategory({
+  category,
+  onEditCategory,
+  onDeleteCategory,
+  onAddItem,
+  onEditItem,
+  onDeleteItem,
+  onToggleItemAvailability,
+  onItemsReorder,
+}: {
+  category: Category;
+  onEditCategory: () => void;
+  onDeleteCategory: () => void;
+  onAddItem: () => void;
+  onEditItem: (item: Item) => void;
+  onDeleteItem: (itemId: string) => void;
+  onToggleItemAvailability: (item: Item) => void;
+  onItemsReorder: (categoryId: string, itemIds: string[]) => void;
+}) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: category.id });
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+  };
+
+  const sensors = useSensors(
+    useSensor(PointerSensor),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+    })
+  );
+
+  function handleItemDragEnd(event: DragEndEvent) {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+
+    const oldIndex = category.items.findIndex((i) => i.id === active.id);
+    const newIndex = category.items.findIndex((i) => i.id === over.id);
+    const newItems = arrayMove(category.items, oldIndex, newIndex);
+    
+    onItemsReorder(category.id, newItems.map((i) => i.id));
+  }
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      className="bg-card rounded-2xl shadow-apple overflow-hidden"
+    >
+      {/* Category Header */}
+      <div className="p-5 border-b flex items-center justify-between bg-secondary/30">
+        <div className="flex items-center gap-3">
+          <button
+            {...attributes}
+            {...listeners}
+            className="cursor-grab active:cursor-grabbing touch-none"
+          >
+            <GripVertical className="w-4 h-4 text-muted-foreground" />
+          </button>
+          <h3 className="font-semibold">{category.name}</h3>
+          <span className="text-sm text-muted-foreground">
+            ({category.items.length} ürün)
+          </span>
+        </div>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="ghost"
+            size="sm"
+            className="rounded-full h-8 px-3"
+            onClick={onAddItem}
+          >
+            <Plus className="w-4 h-4 mr-1" />
+            Ürün Ekle
+          </Button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" size="icon" className="rounded-full h-8 w-8">
+                <MoreHorizontal className="w-4 h-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="rounded-xl">
+              <DropdownMenuItem onClick={onEditCategory} className="rounded-lg">
+                <Pencil className="w-4 h-4 mr-2" />
+                Düzenle
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                onClick={onDeleteCategory}
+                className="text-destructive focus:text-destructive rounded-lg"
+              >
+                <Trash2 className="w-4 h-4 mr-2" />
+                Sil
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
+      </div>
+
+      {/* Items */}
+      {category.items.length === 0 ? (
+        <div className="p-8 text-center text-muted-foreground">
+          Bu kategoride henüz ürün yok
+        </div>
+      ) : (
+        <DndContext
+          sensors={sensors}
+          collisionDetection={closestCenter}
+          onDragEnd={handleItemDragEnd}
+        >
+          <SortableContext
+            items={category.items.map((i) => i.id)}
+            strategy={verticalListSortingStrategy}
+          >
+            <div className="divide-y">
+              {category.items
+                .sort((a, b) => a.order - b.order)
+                .map((item) => (
+                  <SortableItem
+                    key={item.id}
+                    item={item}
+                    onEdit={() => onEditItem(item)}
+                    onDelete={() => onDeleteItem(item.id)}
+                    onToggleAvailability={() => onToggleItemAvailability(item)}
+                  />
+                ))}
+            </div>
+          </SortableContext>
+        </DndContext>
+      )}
+    </div>
+  );
 }
 
 export default function RestoranDuzenlePage({ params }: { params: Promise<{ id: string }> }) {
@@ -84,6 +351,15 @@ export default function RestoranDuzenlePage({ params }: { params: Promise<{ id: 
   const [editingCategory, setEditingCategory] = useState<Category | null>(null);
   const [editingItem, setEditingItem] = useState<Item | null>(null);
   const [selectedCategoryId, setSelectedCategoryId] = useState<string | null>(null);
+  const [itemImage, setItemImage] = useState<string | null>(null);
+
+  // DnD sensors
+  const sensors = useSensors(
+    useSensor(PointerSensor),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+    })
+  );
 
   useEffect(() => {
     fetchRestaurant();
@@ -183,6 +459,59 @@ export default function RestoranDuzenlePage({ params }: { params: Promise<{ id: 
     }
   }
 
+  // Category reorder
+  async function handleCategoryDragEnd(event: DragEndEvent) {
+    const { active, over } = event;
+    if (!over || active.id === over.id || !restaurant) return;
+
+    const oldIndex = restaurant.categories.findIndex((c) => c.id === active.id);
+    const newIndex = restaurant.categories.findIndex((c) => c.id === over.id);
+    const newCategories = arrayMove(restaurant.categories, oldIndex, newIndex);
+    
+    // Optimistic update
+    setRestaurant({ ...restaurant, categories: newCategories });
+
+    try {
+      await fetch("/api/categories/reorder", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ categoryIds: newCategories.map((c) => c.id) }),
+      });
+    } catch {
+      toast.error("Sıralama kaydedilemedi");
+      fetchRestaurant();
+    }
+  }
+
+  // Items reorder
+  async function handleItemsReorder(categoryId: string, itemIds: string[]) {
+    if (!restaurant) return;
+
+    // Optimistic update
+    const newCategories = restaurant.categories.map((c) => {
+      if (c.id === categoryId) {
+        const reorderedItems = itemIds.map((id, index) => {
+          const item = c.items.find((i) => i.id === id)!;
+          return { ...item, order: index };
+        });
+        return { ...c, items: reorderedItems };
+      }
+      return c;
+    });
+    setRestaurant({ ...restaurant, categories: newCategories });
+
+    try {
+      await fetch("/api/items/reorder", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ itemIds }),
+      });
+    } catch {
+      toast.error("Sıralama kaydedilemedi");
+      fetchRestaurant();
+    }
+  }
+
   // Item functions
   async function saveItem(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -191,7 +520,7 @@ export default function RestoranDuzenlePage({ params }: { params: Promise<{ id: 
       name: formData.get("itemName") as string,
       description: formData.get("itemDescription") as string || null,
       price: parseFloat(formData.get("itemPrice") as string),
-      image: formData.get("itemImageUrl") as string || null,
+      image: itemImage,
     };
 
     try {
@@ -213,6 +542,7 @@ export default function RestoranDuzenlePage({ params }: { params: Promise<{ id: 
       setItemDialogOpen(false);
       setEditingItem(null);
       setSelectedCategoryId(null);
+      setItemImage(null);
       fetchRestaurant();
     } catch {
       toast.error("Bir hata oluştu");
@@ -242,6 +572,18 @@ export default function RestoranDuzenlePage({ params }: { params: Promise<{ id: 
     } catch {
       toast.error("Bir hata oluştu");
     }
+  }
+
+  function openItemDialog(categoryId: string, item?: Item) {
+    setSelectedCategoryId(categoryId);
+    if (item) {
+      setEditingItem(item);
+      setItemImage(item.image);
+    } else {
+      setEditingItem(null);
+      setItemImage(null);
+    }
+    setItemDialogOpen(true);
   }
 
   if (isLoading) {
@@ -359,7 +701,7 @@ export default function RestoranDuzenlePage({ params }: { params: Promise<{ id: 
               </Dialog>
             </div>
 
-            {/* Categories */}
+            {/* Categories with Drag & Drop */}
             {restaurant.categories.length === 0 ? (
               <div className="bg-card rounded-2xl p-12 shadow-apple text-center">
                 <div className="w-16 h-16 bg-secondary rounded-2xl flex items-center justify-center mx-auto mb-6">
@@ -371,146 +713,37 @@ export default function RestoranDuzenlePage({ params }: { params: Promise<{ id: 
                 </p>
               </div>
             ) : (
-              restaurant.categories.map((category) => (
-                <div key={category.id} className="bg-card rounded-2xl shadow-apple overflow-hidden">
-                  {/* Category Header */}
-                  <div className="p-5 border-b flex items-center justify-between bg-secondary/30">
-                    <div className="flex items-center gap-3">
-                      <GripVertical className="w-4 h-4 text-muted-foreground cursor-grab" />
-                      <h3 className="font-semibold">{category.name}</h3>
-                      <span className="text-sm text-muted-foreground">
-                        ({category.items.length} ürün)
-                      </span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="rounded-full h-8 px-3"
-                        onClick={() => {
-                          setSelectedCategoryId(category.id);
-                          setEditingItem(null);
-                          setItemDialogOpen(true);
-                        }}
-                      >
-                        <Plus className="w-4 h-4 mr-1" />
-                        Ürün Ekle
-                      </Button>
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button variant="ghost" size="icon" className="rounded-full h-8 w-8">
-                            <MoreHorizontal className="w-4 h-4" />
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end" className="rounded-xl">
-                          <DropdownMenuItem
-                            onClick={() => {
-                              setEditingCategory(category);
-                              setCategoryDialogOpen(true);
-                            }}
-                            className="rounded-lg"
-                          >
-                            <Pencil className="w-4 h-4 mr-2" />
-                            Düzenle
-                          </DropdownMenuItem>
-                          <DropdownMenuSeparator />
-                          <DropdownMenuItem
-                            onClick={() => deleteCategory(category.id)}
-                            className="text-destructive focus:text-destructive rounded-lg"
-                          >
-                            <Trash2 className="w-4 h-4 mr-2" />
-                            Sil
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    </div>
-                  </div>
-
-                  {/* Items */}
-                  {category.items.length === 0 ? (
-                    <div className="p-8 text-center text-muted-foreground">
-                      Bu kategoride henüz ürün yok
-                    </div>
-                  ) : (
-                    <div className="divide-y">
-                      {category.items.map((item) => (
-                        <div
-                          key={item.id}
-                          className={`p-4 flex items-center gap-4 ${
-                            !item.isAvailable ? "opacity-50" : ""
-                          }`}
-                        >
-                          <GripVertical className="w-4 h-4 text-muted-foreground cursor-grab flex-shrink-0" />
-                          
-                          {/* Item Image */}
-                          <div className="w-14 h-14 bg-secondary rounded-xl flex items-center justify-center flex-shrink-0 overflow-hidden">
-                            {item.image ? (
-                              <img 
-                                src={item.image} 
-                                alt={item.name}
-                                className="w-full h-full object-cover"
-                              />
-                            ) : (
-                              <div className="w-6 h-6 bg-muted-foreground/20 rounded-lg" />
-                            )}
-                          </div>
-
-                          {/* Item Info */}
-                          <div className="flex-1 min-w-0">
-                            <h4 className="font-medium truncate">{item.name}</h4>
-                            {item.description && (
-                              <p className="text-sm text-muted-foreground truncate">
-                                {item.description}
-                              </p>
-                            )}
-                          </div>
-
-                          {/* Price */}
-                          <div className="text-right flex-shrink-0">
-                            <p className="font-semibold">₺{Number(item.price).toFixed(2)}</p>
-                          </div>
-
-                          {/* Actions */}
-                          <div className="flex items-center gap-1 flex-shrink-0">
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="rounded-full h-8 w-8"
-                              onClick={() => toggleItemAvailability(item)}
-                            >
-                              {item.isAvailable ? (
-                                <Eye className="w-4 h-4" />
-                              ) : (
-                                <EyeOff className="w-4 h-4" />
-                              )}
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="rounded-full h-8 w-8"
-                              onClick={() => {
-                                setEditingItem(item);
-                                setSelectedCategoryId(category.id);
-                                setItemDialogOpen(true);
-                              }}
-                            >
-                              <Pencil className="w-4 h-4" />
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="rounded-full h-8 w-8 text-destructive hover:text-destructive"
-                              onClick={() => deleteItem(item.id)}
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </Button>
-                          </div>
-                        </div>
+              <DndContext
+                sensors={sensors}
+                collisionDetection={closestCenter}
+                onDragEnd={handleCategoryDragEnd}
+              >
+                <SortableContext
+                  items={restaurant.categories.map((c) => c.id)}
+                  strategy={verticalListSortingStrategy}
+                >
+                  <div className="space-y-4">
+                    {restaurant.categories
+                      .sort((a, b) => a.order - b.order)
+                      .map((category) => (
+                        <SortableCategory
+                          key={category.id}
+                          category={category}
+                          onEditCategory={() => {
+                            setEditingCategory(category);
+                            setCategoryDialogOpen(true);
+                          }}
+                          onDeleteCategory={() => deleteCategory(category.id)}
+                          onAddItem={() => openItemDialog(category.id)}
+                          onEditItem={(item) => openItemDialog(category.id, item)}
+                          onDeleteItem={deleteItem}
+                          onToggleItemAvailability={toggleItemAvailability}
+                          onItemsReorder={handleItemsReorder}
+                        />
                       ))}
-                    </div>
-                  )}
-                </div>
-              ))
+                  </div>
+                </SortableContext>
+              </DndContext>
             )}
           </div>
         ) : (
@@ -613,14 +846,32 @@ export default function RestoranDuzenlePage({ params }: { params: Promise<{ id: 
         )}
 
         {/* Item Dialog */}
-        <Dialog open={itemDialogOpen} onOpenChange={setItemDialogOpen}>
-          <DialogContent className="rounded-2xl">
+        <Dialog open={itemDialogOpen} onOpenChange={(open) => {
+          setItemDialogOpen(open);
+          if (!open) {
+            setItemImage(null);
+            setEditingItem(null);
+            setSelectedCategoryId(null);
+          }
+        }}>
+          <DialogContent className="rounded-2xl max-w-md">
             <DialogHeader>
               <DialogTitle>
                 {editingItem ? "Ürün Düzenle" : "Yeni Ürün"}
               </DialogTitle>
             </DialogHeader>
-            <form onSubmit={saveItem} className="space-y-4 mt-4">
+            <form onSubmit={saveItem} className="space-y-5 mt-4">
+              {/* Image Upload */}
+              <div className="space-y-2">
+                <Label>Ürün Görseli</Label>
+                <ImageUpload
+                  value={itemImage}
+                  onChange={setItemImage}
+                  folder="menu-items"
+                  className="w-32"
+                />
+              </div>
+
               <div className="space-y-2">
                 <Label htmlFor="itemName">Ürün Adı</Label>
                 <Input
@@ -654,17 +905,6 @@ export default function RestoranDuzenlePage({ params }: { params: Promise<{ id: 
                   defaultValue={editingItem?.price}
                   placeholder="0.00"
                   required
-                  className="h-12 rounded-xl bg-secondary/50 border-0"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="itemImageUrl">Görsel URL (opsiyonel)</Label>
-                <Input
-                  id="itemImageUrl"
-                  name="itemImageUrl"
-                  type="url"
-                  defaultValue={editingItem?.image || ""}
-                  placeholder="https://..."
                   className="h-12 rounded-xl bg-secondary/50 border-0"
                 />
               </div>
