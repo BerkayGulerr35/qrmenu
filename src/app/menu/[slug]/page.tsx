@@ -145,24 +145,20 @@ interface MenuItemProps {
     id: string;
     name: string;
     description: string | null;
-    price: number | { toNumber: () => number };
-    imageUrl: string | null;
+    price: number;
+    image: string | null;
   };
 }
 
 function MenuItem({ item }: MenuItemProps) {
-  const price = typeof item.price === 'object' && 'toNumber' in item.price 
-    ? item.price.toNumber() 
-    : Number(item.price);
-
   return (
     <div className="bg-card rounded-2xl p-4 shadow-apple hover-lift">
       <div className="flex gap-4">
         {/* Image */}
-        {item.imageUrl ? (
+        {item.image ? (
           <div className="w-20 h-20 rounded-xl overflow-hidden flex-shrink-0">
             <img
-              src={item.imageUrl}
+              src={item.image}
               alt={item.name}
               className="w-full h-full object-cover"
             />
@@ -178,7 +174,7 @@ function MenuItem({ item }: MenuItemProps) {
           <div className="flex items-start justify-between gap-2">
             <h3 className="font-semibold text-lg leading-tight">{item.name}</h3>
             <span className="font-bold text-lg whitespace-nowrap">
-              ₺{price.toFixed(2)}
+              ₺{item.price.toFixed(2)}
             </span>
           </div>
           {item.description && (

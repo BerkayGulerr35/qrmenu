@@ -43,7 +43,7 @@ interface Item {
   name: string;
   description: string | null;
   price: number;
-  imageUrl: string | null;
+  image: string | null;
   isAvailable: boolean;
 }
 
@@ -191,7 +191,7 @@ export default function RestoranDuzenlePage({ params }: { params: Promise<{ id: 
       name: formData.get("itemName") as string,
       description: formData.get("itemDescription") as string || null,
       price: parseFloat(formData.get("itemPrice") as string),
-      imageUrl: formData.get("itemImageUrl") as string || null,
+      image: formData.get("itemImageUrl") as string || null,
     };
 
     try {
@@ -444,9 +444,9 @@ export default function RestoranDuzenlePage({ params }: { params: Promise<{ id: 
                           
                           {/* Item Image */}
                           <div className="w-14 h-14 bg-secondary rounded-xl flex items-center justify-center flex-shrink-0 overflow-hidden">
-                            {item.imageUrl ? (
+                            {item.image ? (
                               <img 
-                                src={item.imageUrl} 
+                                src={item.image} 
                                 alt={item.name}
                                 className="w-full h-full object-cover"
                               />
@@ -663,7 +663,7 @@ export default function RestoranDuzenlePage({ params }: { params: Promise<{ id: 
                   id="itemImageUrl"
                   name="itemImageUrl"
                   type="url"
-                  defaultValue={editingItem?.imageUrl || ""}
+                  defaultValue={editingItem?.image || ""}
                   placeholder="https://..."
                   className="h-12 rounded-xl bg-secondary/50 border-0"
                 />
