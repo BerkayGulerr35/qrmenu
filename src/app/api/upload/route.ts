@@ -64,8 +64,11 @@ export async function POST(req: Request) {
       });
 
     if (error) {
-      console.error("Upload error:", error);
-      return NextResponse.json({ error: "Yükleme başarısız" }, { status: 500 });
+      console.error("Supabase upload error:", error);
+      return NextResponse.json(
+        { error: `Yükleme başarısız: ${error.message}` },
+        { status: 500 }
+      );
     }
 
     const { data } = supabase.storage.from("images").getPublicUrl(fileName);
