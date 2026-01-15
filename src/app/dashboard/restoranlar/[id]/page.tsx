@@ -1,48 +1,56 @@
 "use client";
 
-import { useState, useEffect, use } from "react";
-import Link from "next/link";
+import { useEffect, useState, use } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Dialog,
   DialogContent,
-  DialogDescription,
   DialogHeader,
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
+import { toast } from "sonner";
 import {
   ArrowLeft,
+  Loader2,
   Plus,
   Trash2,
-  Edit,
-  Loader2,
   QrCode,
-  Eye,
+  ExternalLink,
+  Store,
   GripVertical,
+  MoreHorizontal,
+  Pencil,
+  Eye,
+  EyeOff,
+  Save,
 } from "lucide-react";
-import { toast } from "sonner";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 
-interface MenuItem {
+interface Item {
   id: string;
   name: string;
   description: string | null;
   price: number;
-  image: string | null;
+  imageUrl: string | null;
   isAvailable: boolean;
 }
 
 interface Category {
   id: string;
   name: string;
-  description: string | null;
-  items: MenuItem[];
+  items: Item[];
 }
 
 interface Restaurant {
@@ -52,158 +60,183 @@ interface Restaurant {
   description: string | null;
   address: string | null;
   phone: string | null;
-  primaryColor: string;
   categories: Category[];
 }
 
-export default function RestoranDetayPage({
-  params,
-}: {
-  params: Promise<{ id: string }>;
-}) {
-  const { id } = use(params);
+export default function RestoranDuzenlePage({ params }: { params: Promise<{ id: string }> }) {
+  const resolvedParams = use(params);
   const router = useRouter();
   const [restaurant, setRestaurant] = useState<Restaurant | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isSaving, setIsSaving] = useState(false);
+  const [activeTab, setActiveTab] = useState<"menu" | "settings">("menu");
+
+  // Form states
+  const [name, setName] = useState("");
+  const [slug, setSlug] = useState("");
+  const [description, setDescription] = useState("");
+  const [address, setAddress] = useState("");
+  const [phone, setPhone] = useState("");
 
   // Dialog states
   const [categoryDialogOpen, setCategoryDialogOpen] = useState(false);
   const [itemDialogOpen, setItemDialogOpen] = useState(false);
+  const [editingCategory, setEditingCategory] = useState<Category | null>(null);
+  const [editingItem, setEditingItem] = useState<Item | null>(null);
   const [selectedCategoryId, setSelectedCategoryId] = useState<string | null>(null);
 
   useEffect(() => {
     fetchRestaurant();
-  }, [id]);
+  }, [resolvedParams.id]);
 
   async function fetchRestaurant() {
     try {
-      const res = await fetch(`/api/restaurants/${id}`);
-      if (res.ok) {
-        const data = await res.json();
-        setRestaurant(data);
-      } else {
-        toast.error("Restoran bulunamadı");
-        router.push("/dashboard/restoranlar");
-      }
+      const res = await fetch(`/api/restaurants/${resolvedParams.id}`);
+      if (!res.ok) throw new Error();
+      const data = await res.json();
+      setRestaurant(data);
+      setName(data.name);
+      setSlug(data.slug);
+      setDescription(data.description || "");
+      setAddress(data.address || "");
+      setPhone(data.phone || "");
     } catch {
-      toast.error("Bir hata oluştu");
+      toast.error("Restoran bulunamadı");
+      router.push("/dashboard/restoranlar");
     } finally {
-      setLoading(false);
+      setIsLoading(false);
     }
   }
 
-  async function updateRestaurant(data: Partial<Restaurant>) {
-    setSaving(true);
+  async function saveSettings() {
+    setIsSaving(true);
     try {
-      const res = await fetch(`/api/restaurants/${id}`, {
-        method: "PATCH",
+      const res = await fetch(`/api/restaurants/${resolvedParams.id}`, {
+        method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(data),
+        body: JSON.stringify({ name, slug, description, address, phone }),
       });
-      if (res.ok) {
-        toast.success("Kaydedildi");
-        fetchRestaurant();
-      } else {
-        toast.error("Bir hata oluştu");
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.error);
       }
-    } catch {
-      toast.error("Bir hata oluştu");
+      toast.success("Değişiklikler kaydedildi");
+      fetchRestaurant();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Bir hata oluştu");
     } finally {
-      setSaving(false);
+      setIsSaving(false);
     }
   }
 
-  async function addCategory(e: React.FormEvent<HTMLFormElement>) {
+  async function deleteRestaurant() {
+    if (!confirm("Bu restoranı silmek istediğinize emin misiniz?")) return;
+    
+    try {
+      await fetch(`/api/restaurants/${resolvedParams.id}`, { method: "DELETE" });
+      toast.success("Restoran silindi");
+      router.push("/dashboard/restoranlar");
+    } catch {
+      toast.error("Bir hata oluştu");
+    }
+  }
+
+  // Category functions
+  async function saveCategory(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     const formData = new FormData(e.currentTarget);
-    const name = formData.get("name") as string;
+    const categoryName = formData.get("categoryName") as string;
 
     try {
-      const res = await fetch(`/api/restaurants/${id}/categories`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name }),
-      });
-      if (res.ok) {
+      if (editingCategory) {
+        await fetch(`/api/categories/${editingCategory.id}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name: categoryName }),
+        });
+        toast.success("Kategori güncellendi");
+      } else {
+        await fetch(`/api/restaurants/${resolvedParams.id}/categories`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name: categoryName }),
+        });
         toast.success("Kategori eklendi");
-        setCategoryDialogOpen(false);
-        fetchRestaurant();
-      } else {
-        const data = await res.json();
-        toast.error(data.error);
       }
+      setCategoryDialogOpen(false);
+      setEditingCategory(null);
+      fetchRestaurant();
     } catch {
       toast.error("Bir hata oluştu");
     }
   }
 
-  async function deleteCategory(categoryId: string) {
-    if (!confirm("Bu kategori ve içindeki tüm ürünler silinecek. Emin misiniz?")) return;
-
+  async function deleteCategory(id: string) {
+    if (!confirm("Bu kategoriyi ve içindeki tüm ürünleri silmek istediğinize emin misiniz?")) return;
+    
     try {
-      const res = await fetch(`/api/categories/${categoryId}`, { method: "DELETE" });
-      if (res.ok) {
-        toast.success("Kategori silindi");
-        fetchRestaurant();
-      } else {
-        toast.error("Bir hata oluştu");
-      }
+      await fetch(`/api/categories/${id}`, { method: "DELETE" });
+      toast.success("Kategori silindi");
+      fetchRestaurant();
     } catch {
       toast.error("Bir hata oluştu");
     }
   }
 
-  async function addItem(e: React.FormEvent<HTMLFormElement>) {
+  // Item functions
+  async function saveItem(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     const formData = new FormData(e.currentTarget);
-    const data = {
-      name: formData.get("name") as string,
-      description: formData.get("description") as string,
-      price: parseFloat(formData.get("price") as string),
+    const itemData = {
+      name: formData.get("itemName") as string,
+      description: formData.get("itemDescription") as string || null,
+      price: parseFloat(formData.get("itemPrice") as string),
+      imageUrl: formData.get("itemImageUrl") as string || null,
     };
 
     try {
-      const res = await fetch(`/api/categories/${selectedCategoryId}/items`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(data),
-      });
-      if (res.ok) {
+      if (editingItem) {
+        await fetch(`/api/items/${editingItem.id}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(itemData),
+        });
+        toast.success("Ürün güncellendi");
+      } else {
+        await fetch(`/api/categories/${selectedCategoryId}/items`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(itemData),
+        });
         toast.success("Ürün eklendi");
-        setItemDialogOpen(false);
-        fetchRestaurant();
-      } else {
-        const result = await res.json();
-        toast.error(result.error);
       }
+      setItemDialogOpen(false);
+      setEditingItem(null);
+      setSelectedCategoryId(null);
+      fetchRestaurant();
     } catch {
       toast.error("Bir hata oluştu");
     }
   }
 
-  async function deleteItem(itemId: string) {
-    if (!confirm("Bu ürün silinecek. Emin misiniz?")) return;
-
+  async function deleteItem(id: string) {
+    if (!confirm("Bu ürünü silmek istediğinize emin misiniz?")) return;
+    
     try {
-      const res = await fetch(`/api/items/${itemId}`, { method: "DELETE" });
-      if (res.ok) {
-        toast.success("Ürün silindi");
-        fetchRestaurant();
-      } else {
-        toast.error("Bir hata oluştu");
-      }
+      await fetch(`/api/items/${id}`, { method: "DELETE" });
+      toast.success("Ürün silindi");
+      fetchRestaurant();
     } catch {
       toast.error("Bir hata oluştu");
     }
   }
 
-  async function toggleItemAvailability(itemId: string, isAvailable: boolean) {
+  async function toggleItemAvailability(item: Item) {
     try {
-      await fetch(`/api/items/${itemId}`, {
-        method: "PATCH",
+      await fetch(`/api/items/${item.id}`, {
+        method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ isAvailable: !isAvailable }),
+        body: JSON.stringify({ isAvailable: !item.isAvailable }),
       });
       fetchRestaurant();
     } catch {
@@ -211,10 +244,10 @@ export default function RestoranDetayPage({
     }
   }
 
-  if (loading) {
+  if (isLoading) {
     return (
-      <div className="flex items-center justify-center min-h-[60vh]">
-        <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
+      <div className="min-h-screen flex items-center justify-center">
+        <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
       </div>
     );
   }
@@ -222,303 +255,426 @@ export default function RestoranDetayPage({
   if (!restaurant) return null;
 
   return (
-    <div className="max-w-5xl mx-auto p-6">
-      <div className="flex items-center justify-between mb-6">
-        <Link
-          href="/dashboard/restoranlar"
-          className="inline-flex items-center gap-2 text-muted-foreground hover:text-foreground"
-        >
-          <ArrowLeft className="w-4 h-4" />
-          Geri Dön
-        </Link>
-        <div className="flex items-center gap-2">
-          <Link href={`/menu/${restaurant.slug}`} target="_blank">
-            <Button variant="outline" size="sm">
-              <Eye className="w-4 h-4 mr-1" />
-              Menüyü Gör
-            </Button>
+    <div className="min-h-screen p-6 lg:p-10">
+      <div className="max-w-5xl mx-auto">
+        {/* Header */}
+        <div className="mb-8">
+          <Link 
+            href="/dashboard/restoranlar" 
+            className="inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground mb-6 transition-colors"
+          >
+            <ArrowLeft className="w-4 h-4" />
+            Restoranlar
           </Link>
-          <Link href={`/dashboard/restoranlar/${id}/qr`}>
-            <Button variant="outline" size="sm">
-              <QrCode className="w-4 h-4 mr-1" />
-              QR Kod
-            </Button>
-          </Link>
-        </div>
-      </div>
 
-      <div className="flex items-center gap-4 mb-8">
-        <div
-          className="w-16 h-16 rounded-xl flex items-center justify-center text-white text-2xl font-bold"
-          style={{ backgroundColor: restaurant.primaryColor }}
-        >
-          {restaurant.name.charAt(0).toUpperCase()}
-        </div>
-        <div>
-          <h1 className="text-2xl font-bold">{restaurant.name}</h1>
-          <p className="text-muted-foreground">/{restaurant.slug}</p>
-        </div>
-      </div>
-
-      <Tabs defaultValue="menu" className="space-y-6">
-        <TabsList>
-          <TabsTrigger value="menu">Menü</TabsTrigger>
-          <TabsTrigger value="settings">Ayarlar</TabsTrigger>
-        </TabsList>
-
-        <TabsContent value="menu" className="space-y-6">
-          <div className="flex items-center justify-between">
-            <h2 className="text-xl font-semibold">Kategoriler & Ürünler</h2>
-            <Dialog open={categoryDialogOpen} onOpenChange={setCategoryDialogOpen}>
-              <DialogTrigger asChild>
-                <Button>
-                  <Plus className="w-4 h-4 mr-2" />
-                  Kategori Ekle
-                </Button>
-              </DialogTrigger>
-              <DialogContent>
-                <DialogHeader>
-                  <DialogTitle>Yeni Kategori</DialogTitle>
-                  <DialogDescription>
-                    Menünüze yeni bir kategori ekleyin
-                  </DialogDescription>
-                </DialogHeader>
-                <form onSubmit={addCategory} className="space-y-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="categoryName">Kategori Adı</Label>
-                    <Input
-                      id="categoryName"
-                      name="name"
-                      placeholder="Örn: Ana Yemekler"
-                      required
-                    />
-                  </div>
-                  <Button type="submit" className="w-full">
-                    Kategori Ekle
-                  </Button>
-                </form>
-              </DialogContent>
-            </Dialog>
-          </div>
-
-          {restaurant.categories.length === 0 ? (
-            <Card>
-              <CardContent className="py-12 text-center">
-                <p className="text-muted-foreground mb-4">
-                  Henüz kategori eklenmemiş
-                </p>
-                <Button onClick={() => setCategoryDialogOpen(true)}>
-                  <Plus className="w-4 h-4 mr-2" />
-                  İlk Kategoriyi Ekle
-                </Button>
-              </CardContent>
-            </Card>
-          ) : (
-            <div className="space-y-6">
-              {restaurant.categories.map((category) => (
-                <Card key={category.id}>
-                  <CardHeader className="pb-3">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <GripVertical className="w-5 h-5 text-muted-foreground cursor-grab" />
-                        <CardTitle className="text-lg">{category.name}</CardTitle>
-                        <span className="text-sm text-muted-foreground">
-                          ({category.items.length} ürün)
-                        </span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => {
-                            setSelectedCategoryId(category.id);
-                            setItemDialogOpen(true);
-                          }}
-                        >
-                          <Plus className="w-4 h-4 mr-1" />
-                          Ürün Ekle
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="text-destructive hover:text-destructive"
-                          onClick={() => deleteCategory(category.id)}
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </Button>
-                      </div>
-                    </div>
-                  </CardHeader>
-                  <CardContent>
-                    {category.items.length === 0 ? (
-                      <p className="text-sm text-muted-foreground text-center py-4">
-                        Bu kategoride henüz ürün yok
-                      </p>
-                    ) : (
-                      <div className="space-y-2">
-                        {category.items.map((item) => (
-                          <div
-                            key={item.id}
-                            className={`flex items-center justify-between p-3 rounded-lg border ${
-                              !item.isAvailable ? "opacity-50" : ""
-                            }`}
-                          >
-                            <div className="flex items-center gap-3">
-                              <GripVertical className="w-4 h-4 text-muted-foreground cursor-grab" />
-                              <div>
-                                <p className="font-medium">{item.name}</p>
-                                {item.description && (
-                                  <p className="text-sm text-muted-foreground">
-                                    {item.description}
-                                  </p>
-                                )}
-                              </div>
-                            </div>
-                            <div className="flex items-center gap-4">
-                              <span className="font-semibold">
-                                ₺{item.price.toFixed(2)}
-                              </span>
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() =>
-                                  toggleItemAvailability(item.id, item.isAvailable)
-                                }
-                              >
-                                {item.isAvailable ? "Gizle" : "Göster"}
-                              </Button>
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                className="text-destructive hover:text-destructive"
-                                onClick={() => deleteItem(item.id)}
-                              >
-                                <Trash2 className="w-4 h-4" />
-                              </Button>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </CardContent>
-                </Card>
-              ))}
+          <div className="flex items-start justify-between">
+            <div className="flex items-center gap-4">
+              <div className="w-14 h-14 bg-secondary rounded-2xl flex items-center justify-center">
+                <Store className="w-7 h-7 text-muted-foreground" />
+              </div>
+              <div>
+                <h1 className="text-2xl font-bold tracking-tight">{restaurant.name}</h1>
+                <p className="text-muted-foreground">/{restaurant.slug}</p>
+              </div>
             </div>
-          )}
-
-          {/* Add Item Dialog */}
-          <Dialog open={itemDialogOpen} onOpenChange={setItemDialogOpen}>
-            <DialogContent>
-              <DialogHeader>
-                <DialogTitle>Yeni Ürün</DialogTitle>
-                <DialogDescription>Kategoriye yeni bir ürün ekleyin</DialogDescription>
-              </DialogHeader>
-              <form onSubmit={addItem} className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="itemName">Ürün Adı</Label>
-                  <Input
-                    id="itemName"
-                    name="name"
-                    placeholder="Örn: Köfte Porsiyon"
-                    required
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="itemDescription">Açıklama</Label>
-                  <Textarea
-                    id="itemDescription"
-                    name="description"
-                    placeholder="Ürün açıklaması"
-                    rows={2}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="itemPrice">Fiyat (₺)</Label>
-                  <Input
-                    id="itemPrice"
-                    name="price"
-                    type="number"
-                    step="0.01"
-                    min="0"
-                    placeholder="0.00"
-                    required
-                  />
-                </div>
-                <Button type="submit" className="w-full">
-                  Ürün Ekle
+            <div className="flex items-center gap-2">
+              <Link href={`/menu/${restaurant.slug}`} target="_blank">
+                <Button variant="outline" size="sm" className="rounded-full h-9 px-4">
+                  <ExternalLink className="w-4 h-4 mr-2" />
+                  Menüyü Gör
                 </Button>
-              </form>
-            </DialogContent>
-          </Dialog>
-        </TabsContent>
+              </Link>
+              <Link href={`/dashboard/restoranlar/${resolvedParams.id}/qr`}>
+                <Button size="sm" className="rounded-full h-9 px-4">
+                  <QrCode className="w-4 h-4 mr-2" />
+                  QR Kod
+                </Button>
+              </Link>
+            </div>
+          </div>
+        </div>
 
-        <TabsContent value="settings">
-          <Card>
-            <CardHeader>
-              <CardTitle>Restoran Ayarları</CardTitle>
-              <CardDescription>
-                Restoranınızın bilgilerini düzenleyin
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <form
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  const formData = new FormData(e.currentTarget);
-                  updateRestaurant({
-                    name: formData.get("name") as string,
-                    description: formData.get("description") as string,
-                    address: formData.get("address") as string,
-                    phone: formData.get("phone") as string,
-                  });
-                }}
-                className="space-y-4"
-              >
+        {/* Tabs */}
+        <div className="flex gap-1 p-1 bg-secondary/50 rounded-xl w-fit mb-8">
+          <button
+            onClick={() => setActiveTab("menu")}
+            className={`px-5 py-2 rounded-lg text-sm font-medium transition-all ${
+              activeTab === "menu" 
+                ? "bg-background shadow-sm text-foreground" 
+                : "text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            Menü
+          </button>
+          <button
+            onClick={() => setActiveTab("settings")}
+            className={`px-5 py-2 rounded-lg text-sm font-medium transition-all ${
+              activeTab === "settings" 
+                ? "bg-background shadow-sm text-foreground" 
+                : "text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            Ayarlar
+          </button>
+        </div>
+
+        {/* Content */}
+        {activeTab === "menu" ? (
+          <div className="space-y-6">
+            {/* Add Category Button */}
+            <div className="flex justify-end">
+              <Dialog open={categoryDialogOpen} onOpenChange={setCategoryDialogOpen}>
+                <DialogTrigger asChild>
+                  <Button 
+                    className="rounded-full h-10 px-5"
+                    onClick={() => setEditingCategory(null)}
+                  >
+                    <Plus className="w-4 h-4 mr-2" />
+                    Yeni Kategori
+                  </Button>
+                </DialogTrigger>
+                <DialogContent className="rounded-2xl">
+                  <DialogHeader>
+                    <DialogTitle>
+                      {editingCategory ? "Kategori Düzenle" : "Yeni Kategori"}
+                    </DialogTitle>
+                  </DialogHeader>
+                  <form onSubmit={saveCategory} className="space-y-4 mt-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="categoryName">Kategori Adı</Label>
+                      <Input
+                        id="categoryName"
+                        name="categoryName"
+                        defaultValue={editingCategory?.name}
+                        placeholder="Örn: Ana Yemekler"
+                        required
+                        className="h-12 rounded-xl bg-secondary/50 border-0"
+                      />
+                    </div>
+                    <Button type="submit" className="w-full h-11 rounded-xl">
+                      {editingCategory ? "Güncelle" : "Ekle"}
+                    </Button>
+                  </form>
+                </DialogContent>
+              </Dialog>
+            </div>
+
+            {/* Categories */}
+            {restaurant.categories.length === 0 ? (
+              <div className="bg-card rounded-2xl p-12 shadow-apple text-center">
+                <div className="w-16 h-16 bg-secondary rounded-2xl flex items-center justify-center mx-auto mb-6">
+                  <Plus className="w-8 h-8 text-muted-foreground" />
+                </div>
+                <h3 className="text-xl font-semibold mb-2">Henüz kategori yok</h3>
+                <p className="text-muted-foreground mb-6">
+                  İlk kategorinizi ekleyerek menünüzü oluşturmaya başlayın.
+                </p>
+              </div>
+            ) : (
+              restaurant.categories.map((category) => (
+                <div key={category.id} className="bg-card rounded-2xl shadow-apple overflow-hidden">
+                  {/* Category Header */}
+                  <div className="p-5 border-b flex items-center justify-between bg-secondary/30">
+                    <div className="flex items-center gap-3">
+                      <GripVertical className="w-4 h-4 text-muted-foreground cursor-grab" />
+                      <h3 className="font-semibold">{category.name}</h3>
+                      <span className="text-sm text-muted-foreground">
+                        ({category.items.length} ürün)
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="rounded-full h-8 px-3"
+                        onClick={() => {
+                          setSelectedCategoryId(category.id);
+                          setEditingItem(null);
+                          setItemDialogOpen(true);
+                        }}
+                      >
+                        <Plus className="w-4 h-4 mr-1" />
+                        Ürün Ekle
+                      </Button>
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button variant="ghost" size="icon" className="rounded-full h-8 w-8">
+                            <MoreHorizontal className="w-4 h-4" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end" className="rounded-xl">
+                          <DropdownMenuItem
+                            onClick={() => {
+                              setEditingCategory(category);
+                              setCategoryDialogOpen(true);
+                            }}
+                            className="rounded-lg"
+                          >
+                            <Pencil className="w-4 h-4 mr-2" />
+                            Düzenle
+                          </DropdownMenuItem>
+                          <DropdownMenuSeparator />
+                          <DropdownMenuItem
+                            onClick={() => deleteCategory(category.id)}
+                            className="text-destructive focus:text-destructive rounded-lg"
+                          >
+                            <Trash2 className="w-4 h-4 mr-2" />
+                            Sil
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </div>
+                  </div>
+
+                  {/* Items */}
+                  {category.items.length === 0 ? (
+                    <div className="p-8 text-center text-muted-foreground">
+                      Bu kategoride henüz ürün yok
+                    </div>
+                  ) : (
+                    <div className="divide-y">
+                      {category.items.map((item) => (
+                        <div
+                          key={item.id}
+                          className={`p-4 flex items-center gap-4 ${
+                            !item.isAvailable ? "opacity-50" : ""
+                          }`}
+                        >
+                          <GripVertical className="w-4 h-4 text-muted-foreground cursor-grab flex-shrink-0" />
+                          
+                          {/* Item Image */}
+                          <div className="w-14 h-14 bg-secondary rounded-xl flex items-center justify-center flex-shrink-0 overflow-hidden">
+                            {item.imageUrl ? (
+                              <img 
+                                src={item.imageUrl} 
+                                alt={item.name}
+                                className="w-full h-full object-cover"
+                              />
+                            ) : (
+                              <div className="w-6 h-6 bg-muted-foreground/20 rounded-lg" />
+                            )}
+                          </div>
+
+                          {/* Item Info */}
+                          <div className="flex-1 min-w-0">
+                            <h4 className="font-medium truncate">{item.name}</h4>
+                            {item.description && (
+                              <p className="text-sm text-muted-foreground truncate">
+                                {item.description}
+                              </p>
+                            )}
+                          </div>
+
+                          {/* Price */}
+                          <div className="text-right flex-shrink-0">
+                            <p className="font-semibold">₺{Number(item.price).toFixed(2)}</p>
+                          </div>
+
+                          {/* Actions */}
+                          <div className="flex items-center gap-1 flex-shrink-0">
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="rounded-full h-8 w-8"
+                              onClick={() => toggleItemAvailability(item)}
+                            >
+                              {item.isAvailable ? (
+                                <Eye className="w-4 h-4" />
+                              ) : (
+                                <EyeOff className="w-4 h-4" />
+                              )}
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="rounded-full h-8 w-8"
+                              onClick={() => {
+                                setEditingItem(item);
+                                setSelectedCategoryId(category.id);
+                                setItemDialogOpen(true);
+                              }}
+                            >
+                              <Pencil className="w-4 h-4" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="rounded-full h-8 w-8 text-destructive hover:text-destructive"
+                              onClick={() => deleteItem(item.id)}
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </Button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ))
+            )}
+          </div>
+        ) : (
+          /* Settings Tab */
+          <div className="space-y-6">
+            <div className="bg-card rounded-2xl p-6 shadow-apple space-y-6">
+              <div className="space-y-5">
                 <div className="space-y-2">
                   <Label htmlFor="name">Restoran Adı</Label>
                   <Input
                     id="name"
-                    name="name"
-                    defaultValue={restaurant.name}
-                    required
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    className="h-12 rounded-xl bg-secondary/50 border-0"
                   />
                 </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="slug">URL Adresi</Label>
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm text-muted-foreground whitespace-nowrap">
+                      qrmenuqr.vercel.app/menu/
+                    </span>
+                    <Input
+                      id="slug"
+                      value={slug}
+                      onChange={(e) => setSlug(e.target.value)}
+                      className="h-12 rounded-xl bg-secondary/50 border-0"
+                    />
+                  </div>
+                </div>
+
                 <div className="space-y-2">
                   <Label htmlFor="description">Açıklama</Label>
                   <Textarea
                     id="description"
-                    name="description"
-                    defaultValue={restaurant.description || ""}
+                    value={description}
+                    onChange={(e) => setDescription(e.target.value)}
                     rows={3}
+                    className="rounded-xl bg-secondary/50 border-0 resize-none"
                   />
                 </div>
-                <div className="grid sm:grid-cols-2 gap-4">
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
                   <div className="space-y-2">
                     <Label htmlFor="address">Adres</Label>
                     <Input
                       id="address"
-                      name="address"
-                      defaultValue={restaurant.address || ""}
+                      value={address}
+                      onChange={(e) => setAddress(e.target.value)}
+                      className="h-12 rounded-xl bg-secondary/50 border-0"
                     />
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="phone">Telefon</Label>
                     <Input
                       id="phone"
-                      name="phone"
-                      defaultValue={restaurant.phone || ""}
+                      value={phone}
+                      onChange={(e) => setPhone(e.target.value)}
+                      className="h-12 rounded-xl bg-secondary/50 border-0"
                     />
                   </div>
                 </div>
-                <Button type="submit" disabled={saving}>
-                  {saving && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
-                  Kaydet
+              </div>
+
+              <div className="flex justify-end pt-4 border-t">
+                <Button
+                  onClick={saveSettings}
+                  disabled={isSaving}
+                  className="rounded-full h-11 px-6"
+                >
+                  {isSaving ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <>
+                      <Save className="w-4 h-4 mr-2" />
+                      Kaydet
+                    </>
+                  )}
                 </Button>
-              </form>
-            </CardContent>
-          </Card>
-        </TabsContent>
-      </Tabs>
+              </div>
+            </div>
+
+            {/* Danger Zone */}
+            <div className="bg-card rounded-2xl p-6 shadow-apple border border-destructive/20">
+              <h3 className="font-semibold text-destructive mb-2">Tehlikeli Alan</h3>
+              <p className="text-sm text-muted-foreground mb-4">
+                Bu restoranı sildiğinizde tüm kategoriler ve ürünler de silinecektir.
+              </p>
+              <Button
+                variant="outline"
+                className="text-destructive border-destructive/50 hover:bg-destructive/10 rounded-full"
+                onClick={deleteRestaurant}
+              >
+                <Trash2 className="w-4 h-4 mr-2" />
+                Restoranı Sil
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {/* Item Dialog */}
+        <Dialog open={itemDialogOpen} onOpenChange={setItemDialogOpen}>
+          <DialogContent className="rounded-2xl">
+            <DialogHeader>
+              <DialogTitle>
+                {editingItem ? "Ürün Düzenle" : "Yeni Ürün"}
+              </DialogTitle>
+            </DialogHeader>
+            <form onSubmit={saveItem} className="space-y-4 mt-4">
+              <div className="space-y-2">
+                <Label htmlFor="itemName">Ürün Adı</Label>
+                <Input
+                  id="itemName"
+                  name="itemName"
+                  defaultValue={editingItem?.name}
+                  placeholder="Örn: Margherita Pizza"
+                  required
+                  className="h-12 rounded-xl bg-secondary/50 border-0"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="itemDescription">Açıklama</Label>
+                <Textarea
+                  id="itemDescription"
+                  name="itemDescription"
+                  defaultValue={editingItem?.description || ""}
+                  placeholder="Ürün açıklaması..."
+                  rows={2}
+                  className="rounded-xl bg-secondary/50 border-0 resize-none"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="itemPrice">Fiyat (₺)</Label>
+                <Input
+                  id="itemPrice"
+                  name="itemPrice"
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  defaultValue={editingItem?.price}
+                  placeholder="0.00"
+                  required
+                  className="h-12 rounded-xl bg-secondary/50 border-0"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="itemImageUrl">Görsel URL (opsiyonel)</Label>
+                <Input
+                  id="itemImageUrl"
+                  name="itemImageUrl"
+                  type="url"
+                  defaultValue={editingItem?.imageUrl || ""}
+                  placeholder="https://..."
+                  className="h-12 rounded-xl bg-secondary/50 border-0"
+                />
+              </div>
+              <Button type="submit" className="w-full h-11 rounded-xl">
+                {editingItem ? "Güncelle" : "Ekle"}
+              </Button>
+            </form>
+          </DialogContent>
+        </Dialog>
+      </div>
     </div>
   );
 }

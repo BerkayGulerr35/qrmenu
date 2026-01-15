@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { DashboardNav } from "@/components/dashboard/nav";
+import { Toaster } from "sonner";
 
 export default async function DashboardLayout({
   children,
@@ -15,9 +16,14 @@ export default async function DashboardLayout({
   }
 
   return (
-    <div className="min-h-screen bg-muted/30">
+    <div className="min-h-screen bg-background">
       <DashboardNav user={session.user} />
-      <main className="pt-16">{children}</main>
+      <main className="lg:pl-72">
+        <div className="min-h-screen">
+          {children}
+        </div>
+      </main>
+      <Toaster position="bottom-right" richColors />
     </div>
   );
 }
