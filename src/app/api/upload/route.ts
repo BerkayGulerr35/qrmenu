@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
-import { supabase } from "@/lib/supabase";
+import { getSupabase } from "@/lib/supabase";
 
 export async function POST(req: Request) {
   try {
@@ -9,6 +9,19 @@ export async function POST(req: Request) {
     if (!session) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
+
+    // Check if Supabase is configured
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+    
+    if (!supabaseUrl || !supabaseKey) {
+      return NextResponse.json(
+        { error: "Görsel yükleme henüz yapılandırılmamış" },
+        { status: 503 }
+      );
+    }
+
+    const supabase = getSupabase();
 
     const formData = await req.formData();
     const file = formData.get("file") as File;
