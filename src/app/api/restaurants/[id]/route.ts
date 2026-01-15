@@ -4,14 +4,6 @@ import { authOptions } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { z } from "zod";
 
-const updateSchema = z.object({
-  name: z.string().min(2).optional(),
-  description: z.string().optional(),
-  address: z.string().optional(),
-  phone: z.string().optional(),
-  primaryColor: z.string().optional(),
-});
-
 export async function GET(
   req: Request,
   { params }: { params: Promise<{ id: string }> }
@@ -48,7 +40,7 @@ export async function GET(
   }
 }
 
-export async function PATCH(
+export async function PUT(
   req: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
@@ -60,6 +52,17 @@ export async function PATCH(
 
     const { id } = await params;
     const body = await req.json();
+    
+    // slug güncelleme desteği ekle
+    const updateSchema = z.object({
+      name: z.string().min(2).optional(),
+      slug: z.string().min(2).optional(),
+      description: z.string().nullable().optional(),
+      address: z.string().nullable().optional(),
+      phone: z.string().nullable().optional(),
+      primaryColor: z.string().optional(),
+    });
+    
     const data = updateSchema.parse(body);
 
     const restaurant = await db.restaurant.findFirst({

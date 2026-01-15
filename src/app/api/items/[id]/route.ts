@@ -6,13 +6,13 @@ import { z } from "zod";
 
 const updateSchema = z.object({
   name: z.string().min(1).optional(),
-  description: z.string().optional(),
+  description: z.string().nullable().optional(),
   price: z.number().min(0).optional(),
-  image: z.string().optional(),
+  image: z.string().nullable().optional(),
   isAvailable: z.boolean().optional(),
 });
 
-export async function PATCH(
+export async function PUT(
   req: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {

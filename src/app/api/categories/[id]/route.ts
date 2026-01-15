@@ -9,7 +9,7 @@ const updateSchema = z.object({
   description: z.string().optional(),
 });
 
-export async function PATCH(
+export async function PUT(
   req: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
